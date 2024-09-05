@@ -1,0 +1,32 @@
+{
+	"schemaVersion": 1,
+	"id": "restadmin",
+	"version": "${version}",
+	"name": "RestAdmin",
+	"description": "A simple REST API for Minecraft server administration.",
+	"authors": ["explodingcamera"],
+	"contact": {
+		"homepage": "https://dawdle.space/",
+		"sources": "https://github.com/explodingcamera/fabric-restadmin"
+	},
+	"license": "MIT",
+	"icon": "assets/restadmin/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"server": [
+			{
+				"value": "space.dawdle.rest.RestAdmin",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"mixins": ["restadmin.mixins.json"],
+	"depends": {
+		"fabricloader": ">=0.16.4",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*",
+		"fabric-language-kotlin": "*"
+	},
+	"suggests": {}
+}
