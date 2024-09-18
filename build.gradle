@@ -48,17 +48,10 @@ dependencies {
     shadow(implementation("org.http4k:http4k-core"))
     shadow(implementation("org.http4k:http4k-server-undertow"))
     shadow(implementation("org.http4k:http4k-format-kotlinx-serialization"))
-    
-	// shadow(implementation("io.javalin:javalin:6.3.0"))
-	// shadow(implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.+"))
 }
 
 tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    // relocate 'javax.servlet', 'shadow.javax.servlet'
-    // relocate 'org.eclipse.jetty', 'shadow.org.eclipse.jetty'
     configurations = [project.configurations.shadow]
-    // minimize()
-    // enableRelocation true
 }
 
 remapJar {
@@ -83,14 +76,6 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
 		jvmTarget = 21
 	}
 }
-
-
-// tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-//     dependencies {
-//         include(dependency('com.fasterxml.jackson.module:jackson-module-kotlin'))
-//         include(dependency('io.javalin:javalin'))
-//     }
-// }
 
 java {
 	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
