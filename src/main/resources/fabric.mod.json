@@ -11,7 +11,7 @@
 	},
 	"license": "MIT",
 	"icon": "assets/restadmin/icon.png",
-	"environment": "*",
+	"environment": "server",
 	"entrypoints": {
 		"server": [
 			{
@@ -20,7 +20,7 @@
 			}
 		]
 	},
-	"mixins": ["restadmin.mixins.json"],
+	"mixins": [],
 	"depends": {
 		"fabricloader": ">=0.16.4",
 		"minecraft": "~1.21.1",

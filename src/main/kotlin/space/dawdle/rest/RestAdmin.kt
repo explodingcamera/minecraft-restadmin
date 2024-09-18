@@ -1,9 +1,6 @@
 package space.dawdle.rest
 
 import com.mojang.authlib.GameProfile
-import io.javalin.Javalin
-import io.javalin.http.BadRequestResponse
-import io.javalin.http.UnauthorizedResponse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -13,6 +10,19 @@ import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.WhitelistEntry
 import net.minecraft.server.network.ServerPlayerEntity
+import org.http4k.core.Body
+import org.http4k.core.Method
+import org.http4k.core.Response
+import org.http4k.core.Status
+import org.http4k.core.then
+import org.http4k.filter.ServerFilters
+import org.http4k.format.KotlinxSerialization.auto
+import org.http4k.routing.bind
+import org.http4k.routing.path
+import org.http4k.routing.routes
+import org.http4k.server.Http4kServer
+import org.http4k.server.Undertow
+import org.http4k.server.asServer
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -40,7 +50,7 @@ object RestAdmin : DedicatedServerModInitializer {
     private val logger = LoggerFactory.getLogger("restadmin")
     lateinit var config: Config
     lateinit var server: MinecraftServer
-    lateinit var web: Javalin
+    lateinit var web: Http4kServer
 
     override fun onInitializeServer() {
         logger.info("Initializing RestAdmin")
@@ -50,7 +60,7 @@ object RestAdmin : DedicatedServerModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(::serverStopping)
     }
 
-    private fun loadConfig() {
+    fun loadConfig() {
         val configPath = FabricLoader.getInstance().configDir.resolve("restadmin.json")
 
         if (!configPath.toFile().exists()) {
@@ -71,79 +81,72 @@ object RestAdmin : DedicatedServerModInitializer {
         }
     }
 
-    private fun runServer() {
+    fun runServer() {
+        val playersLense = Body.auto<List<MojangProfile>>().toLens()
+        val whitelistLense = Body.auto<List<String>>().toLens()
+        val playerLense = Body.auto<MojangProfile>().toLens()
+        val booleanLense = Body.auto<Boolean>().toLens()
+
         web =
-            Javalin
-                .create { config ->
-                    config.jetty.defaultHost = this.config.host
-                }
-                // check if the request has the correct token
-                .before { ctx ->
-                    if (ctx.header("Authorization") != "Bearer ${config.token}") {
-                        throw UnauthorizedResponse("Invalid token")
-                    }
-                }
-                // get the connected players
-                .get("/players") { ctx ->
-                    ctx.json(connectedPlayers().map { MojangProfile(it.uuid.toString(), it.gameProfile.name) })
-                }
-                // get the whitelist
-                .get("/whitelist") { ctx ->
-                    ctx.json(getWhitelist())
-                }
-                // check if a player is on the whitelist
-                .get("/whitelist/{username_or_uuid}") { ctx ->
-                    val username = ctx.pathParam("username_or_uuid")
-                    val profile = getGameProfile(username)
-                    if (profile == null) {
-                        throw BadRequestResponse("Failed to find $username")
-                    }
+            ServerFilters
+                .BearerAuth(config.token)
+                .then(
+                    routes(
+                        "/players" bind Method.GET to {
+                            val players = connectedPlayers().map { MojangProfile(it.uuid.toString(), it.gameProfile.name) }
+                            playersLense(players, Response(Status.OK))
+                        },
+                        "/whitelist" bind Method.GET to {
+                            val whitelist = getWhitelist()
+                            whitelistLense(whitelist, Response(Status.OK))
+                        },
+                        "/whitelist/{username_or_uuid}" bind Method.GET to { req ->
+                            val username = req.path("username_or_uuid").orEmpty()
+                            getGameProfile(username)?.let { profile ->
+                                booleanLense(isWhitelisted(profile), Response(Status.OK))
+                            } ?: Response(Status.BAD_REQUEST).body("Failed to find $username")
+                        },
+                        "/whitelist/{username_or_uuid}" bind Method.POST to { req ->
+                            val username = req.path("username_or_uuid").orEmpty()
+                            val profile = getGameProfile(username)
 
-                    ctx.json(isWhitelisted(profile))
-                }
-                // add a player to the whitelist
-                .post("/whitelist/{username_or_uuid}") { ctx ->
-                    val username = ctx.pathParam("username_or_uuid")
-                    val profile = getGameProfile(username)
+                            if (profile == null) {
+                                Response(Status.BAD_REQUEST).body("Failed to find $username")
+                            } else if (isWhitelisted(profile)) {
+                                playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
+                            } else {
+                                addToWhitelist(profile)
+                                playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
+                            }
+                        },
+                        "/whitelist/{username_or_uuid}" bind Method.DELETE to { req ->
+                            val username = req.path("username_or_uuid").orEmpty()
+                            val profile = getGameProfile(username)
+                            if (profile == null) {
+                                Response(Status.INTERNAL_SERVER_ERROR).body("Failed to find $username")
+                            } else {
+                                removeFromWhitelist(profile)
+                                playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
+                            }
+                        },
+                    ),
+                ).asServer(Undertow(config.port))
 
-                    if (profile == null) {
-                        throw BadRequestResponse("Failed to find $username")
-                    }
-
-                    if (isWhitelisted(profile)) {
-                        ctx.status(200).json(MojangProfile(profile.id.toString(), profile.name))
-                        return@post
-                    }
-
-                    addToWhitelist(profile)
-                    ctx.status(200).json(MojangProfile(profile.id.toString(), profile.name))
-                }
-                // remove a player from the whitelist
-                .delete("/whitelist/{username_or_uuid}") { ctx ->
-                    val username = ctx.pathParam("username_or_uuid")
-                    val profile = getGameProfile(username)
-                    if (profile == null) {
-                        throw InternalError("Failed to find $username")
-                    }
-
-                    removeFromWhitelist(profile)
-                    ctx.status(200).json(MojangProfile(profile.id.toString(), profile.name))
-                }.start(this.config.port)
-
+        web.start()
         logger.info("Started RestAdmin on ${this.config.host}:${this.config.port}")
     }
 
-    private fun serverStarting(server: MinecraftServer) {
+    fun serverStarting(server: MinecraftServer) {
         this.server = server
         runServer()
     }
 
-    private fun serverStopping(_server: MinecraftServer) {
+    fun serverStopping(_server: MinecraftServer) {
         web.stop()
         logger.info("Stopped RestAdmin")
     }
 
-    private fun getGameProfile(username_or_uuid: String): GameProfile? {
+    fun getGameProfile(username_or_uuid: String): GameProfile? {
         try {
             val uuid = UUID.fromString(username_or_uuid)
             return server.userCache?.getByUuid(uuid)?.get()
@@ -153,13 +156,13 @@ object RestAdmin : DedicatedServerModInitializer {
         return server.userCache?.findByName(username_or_uuid)?.get()
     }
 
-    private fun isWhitelisted(profile: GameProfile): Boolean = server.playerManager.isWhitelisted(profile)
+    fun isWhitelisted(profile: GameProfile): Boolean = server.playerManager.isWhitelisted(profile)
 
-    private fun getWhitelist(): List<String> = server.playerManager.whitelistedNames.toList()
+    fun getWhitelist(): List<String> = server.playerManager.whitelistedNames.toList()
 
-    private fun connectedPlayers(): List<ServerPlayerEntity> = server.playerManager.playerList.filterNotNull()
+    fun connectedPlayers(): List<ServerPlayerEntity> = server.playerManager.playerList.filterNotNull()
 
-    private fun addToWhitelist(profile: GameProfile) {
+    fun addToWhitelist(profile: GameProfile) {
         val username = profile.name
         val entry = WhitelistEntry(profile)
         server.playerManager.whitelist.add(entry)
@@ -167,7 +170,7 @@ object RestAdmin : DedicatedServerModInitializer {
         server.playerManager.whitelist.save()
     }
 
-    private fun removeFromWhitelist(profile: GameProfile) {
+    fun removeFromWhitelist(profile: GameProfile) {
         val username = profile.name
         server.playerManager.whitelist.remove(profile)
         logger.info("Removed $username from the whitelist")

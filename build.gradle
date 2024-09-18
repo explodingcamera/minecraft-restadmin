@@ -3,6 +3,7 @@ plugins {
 	id 'maven-publish'
 	id "org.jetbrains.kotlin.jvm" version "2.0.20"
 	id 'org.jetbrains.kotlin.plugin.serialization' version '2.0.20'
+    id "com.gradleup.shadow" version "8.3.2"
 }
 
 version = project.mod_version
@@ -18,6 +19,7 @@ repositories {
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
 	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
 	// for more information about repositories.
+    mavenCentral()
 }
 
 loom {
@@ -42,8 +44,26 @@ dependencies {
 	modImplementation "net.fabricmc:fabric-language-kotlin:${project.fabric_kotlin_version}"
 
 	// webserver
-	implementation "io.javalin:javalin:6.3.0"
-	implementation "com.fasterxml.jackson.module:jackson-module-kotlin:2.17.+"
+    shadow(implementation(platform("org.http4k:http4k-bom:5.31.0.0")))
+    shadow(implementation("org.http4k:http4k-core"))
+    shadow(implementation("org.http4k:http4k-server-undertow"))
+    shadow(implementation("org.http4k:http4k-format-kotlinx-serialization"))
+    
+	// shadow(implementation("io.javalin:javalin:6.3.0"))
+	// shadow(implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.+"))
+}
+
+tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    // relocate 'javax.servlet', 'shadow.javax.servlet'
+    // relocate 'org.eclipse.jetty', 'shadow.org.eclipse.jetty'
+    configurations = [project.configurations.shadow]
+    // minimize()
+    // enableRelocation true
+}
+
+remapJar {
+	dependsOn(shadowJar)
+	inputFile = tasks.shadowJar.archiveFile
 }
 
 processResources {
@@ -63,6 +83,14 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
 		jvmTarget = 21
 	}
 }
+
+
+// tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+//     dependencies {
+//         include(dependency('com.fasterxml.jackson.module:jackson-module-kotlin'))
+//         include(dependency('io.javalin:javalin'))
+//     }
+// }
 
 java {
 	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
