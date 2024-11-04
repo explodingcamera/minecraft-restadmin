@@ -112,9 +112,8 @@ object RestAdmin : DedicatedServerModInitializer {
 
                             if (profile == null) {
                                 Response(Status.BAD_REQUEST).body("Failed to find $username")
-                            } else if (isWhitelisted(profile)) {
-                                playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
                             } else {
+                                logger.info("Adding ${profile.name} (${profile.id}) to the whitelist")
                                 addToWhitelist(profile)
                                 playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
                             }
@@ -123,8 +122,10 @@ object RestAdmin : DedicatedServerModInitializer {
                             val username = req.path("username_or_uuid").orEmpty()
                             val profile = getGameProfile(username)
                             if (profile == null) {
+                                logger.error("Failed to find $username while removing from whitelist, skipping")
                                 Response(Status.INTERNAL_SERVER_ERROR).body("Failed to find $username")
                             } else {
+                                logger.info("Removing ${profile.name} (${profile.id}) from the whitelist")
                                 removeFromWhitelist(profile)
                                 playerLense(MojangProfile(profile.id.toString(), profile.name), Response(Status.OK))
                             }
@@ -163,17 +164,13 @@ object RestAdmin : DedicatedServerModInitializer {
     fun connectedPlayers(): List<ServerPlayerEntity> = server.playerManager.playerList.filterNotNull()
 
     fun addToWhitelist(profile: GameProfile) {
-        val username = profile.name
         val entry = WhitelistEntry(profile)
         server.playerManager.whitelist.add(entry)
-        logger.info("Added $username to the whitelist")
         server.playerManager.whitelist.save()
     }
 
     fun removeFromWhitelist(profile: GameProfile) {
-        val username = profile.name
         server.playerManager.whitelist.remove(profile)
-        logger.info("Removed $username from the whitelist")
         server.playerManager.whitelist.save()
     }
 }
